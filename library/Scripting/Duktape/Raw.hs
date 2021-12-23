@@ -174,6 +174,13 @@ foreign import capi safe "duktape.h duk_json_decode"
 foreign import capi safe "duktape.h duk_push_context_dump"
   c_duk_push_context_dump ∷ Ptr DuktapeHeap → IO ()
 
+-- Modules (extras)
+-- https://github.com/svaarala/duktape/blob/master/extras/module-duktape/README.rst
+
+foreign import capi safe "duk_module_duktape.h duk_module_duktape_init"
+  c_duk_module_duktape_init ∷ Ptr DuktapeHeap → IO ()
+
+
 -------------------------------------------------------------------------------------------------------
 
 nullUData ∷ InternalUData
@@ -183,7 +190,10 @@ createHeap ∷ FunPtr DukAllocFunction → FunPtr DukReallocFunction → FunPtr 
 createHeap allocf reallocf freef udata fatalf = do
   ptr ← c_duk_create_heap allocf reallocf freef (getInternalUData udata) fatalf
   if ptr /= nullPtr
-     then newForeignPtr ptr (c_duk_destroy_heap ptr) >>= newMVar >>= return . Just
+     then do
+       -- Add support for module loading (still requires a haskell shim to be provided):
+       c_duk_module_duktape_init ptr
+       newForeignPtr ptr (c_duk_destroy_heap ptr) >>= newMVar >>= return . Just
      else return Nothing
 
 createHeapF ∷ FunPtr DukFatalFunction → IO (Maybe DuktapeCtx)

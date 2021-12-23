@@ -1,4 +1,4 @@
-{-# LANGUAGE QuasiQuotes, OverloadedStrings, UnicodeSyntax #-}
+{-# LANGUAGE LambdaCase, QuasiQuotes, OverloadedStrings, UnicodeSyntax #-}
 
 module Scripting.DuktapeSpec (spec) where
 
@@ -7,6 +7,8 @@ import           Test.Hspec.Expectations.Pretty (shouldBe)
 import           TestCommon
 import           Data.Maybe
 import           Data.Aeson hiding (json)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Data.Time.Clock
 import           Scripting.Duktape
 import           Scripting.Duktape.Raw (createGovernedHeap)
@@ -105,6 +107,68 @@ function objTest (obj) { return obj.name + obj.stuff.filter(function (x) { retur
       ctx ← createGovernedHeap nullFunPtr nullFunPtr nullFunPtr guvnor nullFunPtr
       rE ← evalDuktape (fromJust ctx) "while(true) {};"
       rE `shouldBe` Left "RangeError: execution timeout"
+
+  describe "modules" $ do
+    it "is supported" $ do
+      Just ctx <- createDuktapeCtx
+      -- expose the shim client code will use to implement 'require':
+      let hs_modsearch :: T.Text -> IO T.Text
+          hs_modsearch = \case
+            "some_module" -> return "module.exports = {a: 1}"
+            "some_other_module" -> return "exports.a = 2"
+            -- NOTE: duktape only supports commonjs-style modules, not ES modules like:
+            -- "some_module" -> return "export const a = 41"
+            _ -> error "unimplemented"
+      exposeFnDuktape ctx Nothing "hs_modsearch" hs_modsearch >>= \case
+        Right () -> return ()
+        Left err -> error err
+
+      defsOut ← evalDuktape ctx [r|
+Duktape.modSearch = hs_modsearch;
+const m1 = require('some_module');
+const m2 = require('some_other_module');
+function test_module (x) { return (m1.a + m2.a + x) }
+// TODO: hmmm, it looks like NaN is corrupted? 
+// function test_module (x) { return (m1.doesnotexist + x) }
+|]
+      defsOut `shouldBe` (Right Nothing)
+
+      out ← callDuktape ctx Nothing "test_module" [Number 39]
+      out `shouldBe` (Right $ Just $ Number 42)
+--------------------------------
+{- TODO we might actually add typescript.js and do this
+    it "ts" $ do
+      Just ctx <- createDuktapeCtx
+      -- expose the shim client code will use to implement 'require':
+      let hs_modsearch :: T.Text -> IO T.Text
+          hs_modsearch = \case
+            "ts" -> do
+                typescript_js <- T.readFile "../duktape-typescript-hs/typescript_vendored/typescript.js"
+                return $ typescript_js 
+                       -- TODO is this the proper way to turn typescript.js into a module?:
+                       <> ";\n module.exports = ts;"
+            _ -> error "unimplemented"
+      exposeFnDuktape ctx Nothing "hs_modsearch" hs_modsearch >>= \case
+        Right () -> return ()
+        Left err -> error err
+
+      defsOut ← evalDuktape ctx [r|
+Duktape.modSearch = hs_modsearch;
+const ts = require('ts');
+function test_module () { return ts.versionMajorMinor }
+// TODO: hmmm, it looks like NaN is corrupted? 
+// function test_module (x) { return (m.doesnotexist + x) }
+|]
+      defsOut `shouldBe` (Right Nothing)
+
+      out ← callDuktape ctx Nothing "test_module" []
+      out `shouldBe` (Right $ Just $ String "4.4")
+-}
+
+-- TODO
+--   tests: interrupted
+--   tests: warning: too many hs_exit()s
+--
 
 
 allowQuarterSecond ∷ IO (IO Bool)
