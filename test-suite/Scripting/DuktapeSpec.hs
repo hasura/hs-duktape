@@ -170,6 +170,9 @@ function test_module () { return ts.versionMajorMinor }
 --   tests: warning: too many hs_exit()s
 --
 
+-- FIXME:
+-- https://github.com/GavinRay97/haskell-scripted-wai/issues/1#issuecomment-1009128345 
+
 
 allowQuarterSecond ∷ IO (IO Bool)
 allowQuarterSecond = do

@@ -110,7 +110,15 @@ pushObjectOrGlobal ctxPtr Nothing   = c_duk_push_global_object ctxPtr >> return 
 
 -- | Creates a Duktape context.
 createDuktapeCtx ∷ MonadIO μ ⇒ μ (Maybe DuktapeCtx)
-createDuktapeCtx = liftIO $ createHeapF nullFunPtr
+createDuktapeCtx = liftIO $ do
+  fatalfPtr <- wrapDukFatalFunction fatalf
+  createHeapF fatalfPtr
+  -- TODO throw here
+  -- TODO but also we should make the DuktapeCtx unusable (might require another level of var indirection)
+  where fatalf _ptr _code c_msg = do
+          msg <- peekCString c_msg
+          print ("DUKTAPE SHITE", msg, _code)
+          error "WE DED"
 
 -- | Evaluates a string of ECMAScript on a given Duktape context.
 --

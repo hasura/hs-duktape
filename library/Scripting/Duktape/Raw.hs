@@ -28,11 +28,16 @@ foreign import capi "duktape.h value DUK_RET_TYPE_ERROR" c_DUK_RET_TYPE_ERROR �
 
 data DuktapeHeap
 
+-- | 
 type DuktapeCtx = MVar (ForeignPtr DuktapeHeap)
 
+-- | See 'c_duk_create_heap'
 type DukAllocFunction = Ptr () → CSize → IO (Ptr ())
+-- | See 'c_duk_create_heap'
 type DukReallocFunction = Ptr () → Ptr () → CSize → IO (Ptr ())
+-- | See 'c_duk_create_heap'
 type DukFreeFunction = Ptr () → Ptr () → IO ()
+-- | See 'c_duk_create_heap'
 type DukFatalFunction = Ptr DuktapeHeap → CInt → CString → IO ()
 
 type DukExecTimeoutCheckFunction = Ptr () → IO (CUInt)
@@ -40,9 +45,10 @@ type TimeoutCheck = IO Bool
 type TimeoutCheckWrapped = FunPtr (IO Bool)
 type CheckActionUData =  Ptr TimeoutCheckWrapped
 
+-- | See 'c_duk_create_heap'
 newtype InternalUData = InternalUData { getInternalUData ∷ Ptr () }
 
--- Static callback
+-- Static callback. See our custom duktape config.yaml
 foreign export ccall "hsduk_exec_timeout_check" execTimeoutCheck ∷ DukExecTimeoutCheckFunction
 
 -- | Will always be invoked regularly by duktape runtime but returns false (do not timeout)
@@ -68,9 +74,13 @@ foreign import ccall "dynamic"
 foreign import ccall safe "wrapper"
   wrapTimeoutCheck ∷ (IO Bool) → IO TimeoutCheckWrapped
 
+foreign import ccall safe "wrapper"
+  wrapDukFatalFunction ∷ DukFatalFunction -> IO (FunPtr DukFatalFunction)
+
 -- Heap lifecycle
 
 foreign import capi safe "duktape.h duk_create_heap"
+  -- | https://duktape.org/api.html#duk_create_heap
   c_duk_create_heap ∷ FunPtr DukAllocFunction → FunPtr DukReallocFunction → FunPtr DukFreeFunction → Ptr () → FunPtr DukFatalFunction → IO (Ptr DuktapeHeap)
 
 foreign import capi safe "duktape.h duk_destroy_heap"
@@ -191,11 +201,15 @@ createHeap allocf reallocf freef udata fatalf = do
   ptr ← c_duk_create_heap allocf reallocf freef (getInternalUData udata) fatalf
   if ptr /= nullPtr
      then do
-       -- Add support for module loading (still requires a haskell shim to be provided):
+       -- Add support for module loading:
+       -- NOTE: this still requires a haskell shim to be provided to client code to
+       --       actually do anything, so it's safe to do this unconditionally
        c_duk_module_duktape_init ptr
        newForeignPtr ptr (c_duk_destroy_heap ptr) >>= newMVar >>= return . Just
      else return Nothing
 
+-- | 'createHeap' with default parameters. Caller provides only a fatal error
+-- handler. See: https://wiki.duktape.org/howtofatalerrors
 createHeapF ∷ FunPtr DukFatalFunction → IO (Maybe DuktapeCtx)
 createHeapF = createHeap nullFunPtr nullFunPtr nullFunPtr nullUData
 
